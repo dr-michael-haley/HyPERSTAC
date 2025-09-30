@@ -1,3 +1,32 @@
+print("Running")
+import os
+os.environ['CUDA_VISIBLE_DEVICES'] = "1"
+os.environ['SCIPY_ARRAY_API'] = "1"
+import numpy as np
+import glob
+import h5py
+from tqdm.auto import tqdm
+import scanpy as sc
+import anndata as ad
+import rapids_singlecell as rsc
+import pandas as pd
+
+def read_features(path):
+    with h5py.File(path, "r") as f:
+        return f.get('features')[:]
+    
+def read_coords(path):
+    with h5py.File(path, "r") as f:
+        return f.get('coords')[:]
+    
+def read_paths(path):
+    with h5py.File(path, "r") as f:
+        return f.get('paths')[:]
+
+def get_patient_id(x):
+    patient_label = x.split('/')[-1].split('_')[1]
+    return patient_label
+
 pd1_df = pd.read_csv("ki67_pdl1_df.csv", index_col=0)
 
 pd1_pos = pd1_df[pd1_df['PDL_positive']==1].samples
