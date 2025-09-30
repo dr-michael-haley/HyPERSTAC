@@ -22,6 +22,8 @@ python3 save-representations.py \
     --image-size 224
 ```
 
+The file ```create-anndata-files.py``` is used to create anndata objects for downstream analysis, including clustering the representations. ```create-anndata-for-patient-subset.py``` does this for only the PD-L1 positive patients, and can be easily adapted to any patient group.
+
 To train and save a lifelines survival model, use
 ```
 risk_groups_test, cph = plot_latticeA("/path/to/data/")
