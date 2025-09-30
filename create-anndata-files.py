@@ -46,9 +46,6 @@ def create_hdf5(save_path, rep_path, num_folds=2, fold=0, scanpy_package=rsc, re
     train_features = np.concatenate([read_features(i) for i in train_paths if os.path.exists(i)], axis=0)
     valid_features = np.concatenate([read_features(i) for i in valid_paths if os.path.exists(i)], axis=0)
 
-#     train_labels = np.concatenate([[i.split('/')[-1][:-3]]*read_features(i).shape[0] for i in tqdm(train_paths)], axis=0)
-#     valid_labels = np.concatenate([[i.split('/')[-1][:-3]]*read_features(i).shape[0] for i in tqdm(valid_paths)], axis=0)
-    
     train_patch_paths = np.concatenate([read_paths(i) for i in train_paths if os.path.exists(i)], axis=0)
     valid_patch_paths = np.concatenate([read_paths(i) for i in valid_paths if os.path.exists(i)], axis=0)
     
@@ -60,10 +57,8 @@ def create_hdf5(save_path, rep_path, num_folds=2, fold=0, scanpy_package=rsc, re
     cluster_labels_new = np.arange(len(cluster_labels_old))
     map_dict = {cluster_labels_old[i]: cluster_labels_new[i] for i in range(len(cluster_labels_old))}
     adata.obs['leiden'] = list(map(lambda x: str(map_dict[x]), adata.obs['leiden']))
-#     adata.obs['sample_id'] = train_labels
     adata.obs['patch_path'] = train_patch_paths
     adata_valid = ad.AnnData(valid_features)
-#     adata_valid.obs['sample_id'] = valid_labels
     adata_valid.obs['patch_path'] = valid_patch_paths
     adata.obs['sample_id'] = adata.obs['patch_path'].astype(str).apply(lambda x: x.split('/')[-2])
     adata.obs['samples'] = adata.obs['sample_id']
