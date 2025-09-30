@@ -2,7 +2,7 @@
 
 To run the ssl-training script, use e.g. the command
 ```
-python3 new_latticeA_multiplex_ssl.py \
+python3 ssl-training.py \
     --data-path <path-to-data> \
     --save-path <path-to-weights> \
     --batch-size 256 \
