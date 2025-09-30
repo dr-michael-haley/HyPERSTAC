@@ -21,3 +21,15 @@ python3 save-representations.py \
     --num-channels 8 \
     --image-size 224
 ```
+
+To train and save a lifelines survival model, use
+```
+risk_groups_test, cph = plot_latticeA("/path/to/data/")
+save_outputs("/save/path/", risk_groups_test, cph)
+```
+
+For combining multiple panels, use
+```
+risk_groups_test, cph = plot_latticeA(["/path/to/data/one/", "/path/to/data/two/"])
+save_outputs("/save/path/", risk_groups_test, cph)
+```
