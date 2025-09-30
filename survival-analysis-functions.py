@@ -286,3 +286,62 @@ def find_aggregate_risk_groups(csv_path, adata_path, panel_name='latticeA', drop
     risk_groups_test = {key: pd.concat(group, axis=0) for key, group in test_risk_data.items()}
     
     return risk_groups_train, risk_groups_test, c_indices, predictions, cph_out
+
+def plot_cumulative_dynamic_auc(train_data, test_data, risk_score, label, color=None, num_timesteps=100):
+    times = np.percentile(test_data[test_data['event']==1]['time'],np.linspace(1,99,num_timesteps))
+    auc, mean_auc = cumulative_dynamic_auc(train_data, test_data, risk_score, times)
+    print("MEAN AUC: ", mean_auc)
+
+    plt.plot(times, auc, marker="o", color=color, label=label)
+    plt.xlabel("days from enrollment")
+    plt.ylabel("time-dependent AUC")
+    plt.axhline(mean_auc, color=color, linestyle="--")
+    plt.legend()
+    plt.show()
+    plt.clf()
+    return mean_auc
+
+def plot_latticeA(adata_path, ax=None, plot_variables=True, select_variables=True, penalty=1, keep_ids=None):
+    NUM_FOLDS = 2
+    PENALTY = penalty
+    LOW_VAR_THRESHOLD = 0.0
+    INFREQUENT_THRESHOLD = 0.0
+
+    unwanted_columns = ['sex','age','stage','samples']
+
+    csv_path = "/path/to/LATTICeA_clinpath_survival_processed.csv"
+    csv = pd.read_csv(csv_path, index_col=0)
+    csv['os_event_data'] = csv['os_event_data']//30
+
+    risk_groups_train, risk_groups_test, c_indices, _, cph = find_aggregate_risk_groups(csv, adata_path, panel_name='latticeA', drop_columns=unwanted_columns, stratify_stage=False, num_folds=2, penalty=PENALTY, low_var_threshold=LOW_VAR_THRESHOLD, drop_infrequent_columns_threshold=INFREQUENT_THRESHOLD, plot_variables=plot_variables, truncate_lim=60, select_variables=select_variables, keep_ids=keep_ids)
+    return risk_groups_test, cph
+
+def get_gri_patient_id(x, patient_data):
+    core_label = x.split('/')[-1].split('.h5')[0]
+    patient_label = patient_data[patient_data['value.1']==core_label+".tif"]
+    if patient_label.index.shape[0]==0:
+        return None
+    return patient_label.index.values[0]
+
+def plot_gri(paths, ax=None, plot_variables=True, select_variables=True, penalty=1, keep_ids=None, plot_auc=False):
+    TRUNCATE_LIM = 60
+    surv_csv = pd.read_csv("/path/to/css_2020_data.csv").rename(columns={'value.1': 'sample_id', 'CSS_months_2020': 'os_event_data'})
+    surv_csv['os_event_ind'] = (surv_csv['CSS_months_2020_Censor']==1).astype(int)
+    surv_csv['samples'] = surv_csv.sample_id.astype(str).apply(lambda x: get_gri_patient_id(x.split('.tif')[0], surv_csv)).astype('string')#.astype('category')#.apply(lambda x: x.split('_component_data.tif')[0].split('.tif')[0]).astype('object')
+    surv_csv.sample_id = surv_csv.sample_id.apply(lambda x: x.split('.tif')[0]).astype('object')#.apply(lambda x: x.split('_component_data.tif')[0].split('.tif')[0]).astype('object')
+    surv_csv = surv_csv.drop(columns=['sample_id','CSS_months_2020_Censor','UpdateJuly2020_a0_cd1_ncd2','value','variable'])
+
+    if TRUNCATE_LIM is not None:
+        surv_csv['os_event_ind'][surv_csv['os_event_data']>TRUNCATE_LIM] = 0
+        surv_csv['os_event_data'][surv_csv['os_event_data']>TRUNCATE_LIM] = TRUNCATE_LIM
+
+    NUM_FOLDS = 2
+    PENALTY = penalty
+    LOW_VAR_THRESHOLD = 0.0
+    INFREQUENT_THRESHOLD = 0.0
+
+    unwanted_columns = ['sex','age','stage','samples']
+    shared_columns = ['samples', 'os_event_ind', 'os_event_data']
+
+    risk_groups_train, risk_groups_test, c_indices, _, cph = find_aggregate_risk_groups(surv_csv, adata_path, panel_name='gri', drop_columns=unwanted_columns, stratify_stage=False, num_folds=2, penalty=PENALTY, low_var_threshold=LOW_VAR_THRESHOLD, drop_infrequent_columns_threshold=INFREQUENT_THRESHOLD, shared_columns=shared_columns, plot_variables=plot_variables, select_variables=select_variables, keep_ids=keep_ids, plot_auc=plot_auc)
+    return risk_groups_test, cph
