@@ -65,12 +65,10 @@ t = datetime.datetime.now()
 sys.path.insert(0,'/home/')
 
 from VICReg.vicreg_utils  import create_adam_opt, save_vicreg_weights, load_vicreg_weights
-from VICReg.dataset_utils import preprocess_ds, load_datasets
 from VICReg.augmentations import *
-from VICReg.analysis_utils import *
 from VICReg.warmupcosine import WarmUpCosine
 
-from SSL_Base.ssl_models import VICReg
+from ssl_base import VICReg
 
 from classification_models.keras import Classifiers
 
