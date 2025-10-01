@@ -11,7 +11,7 @@ from sksurv.compare import compare_survival
 import os
 from lifelines import CoxPHFitter
 
-from survival_analysis_functions import 
+from survival_analysis_functions import preprocess_inputs
 
 def reformat_name(x, csv):
     split = x.split('_')
