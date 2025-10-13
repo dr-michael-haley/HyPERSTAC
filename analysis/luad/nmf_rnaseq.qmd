@@ -1,0 +1,632 @@
+---
+title: "mIF SSL - Component 6 DE"
+format: html
+editor: visual
+execute: 
+  warning: false
+---
+
+## Imports and preprocessing
+
+### For RNA-Seq
+
+```{r}
+#| code-fold: true
+#| code-summary: "Code"
+#| echo: false
+library(tidyverse)
+
+component_data <- read_csv('/Users/Kai/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/PhD_Workspace/Hyperstack_paper/nmf/W_df_k12.csv')
+
+load("/Users/Kai/Library/CloudStorage/OneDrive-UniversityofGlasgow/Temposeq/LUADChohort.RData")
+raw_counts <- LUADCohort$rawExpr
+
+metadata <- LUADCohort$Metadata %>% 
+  mutate(samples = sprintf("ACA_%04s", `Case Number`)) %>% 
+  right_join(component_data, join_by(samples == samples)) %>% 
+  dplyr:::select(c("...1", "Component_1", "Component_2", "Component_3", "Component_4", "Component_5", 
+                   "Component_6", "Component_7", "Component_8", "Component_9", "Component_10", 
+                   "Component_11", "Component_12", "samples")) %>% 
+  na.omit() %>% 
+  column_to_rownames(var = "...1")
+
+hallmarks_ssgsea <- read_csv("/Users/Kai/Library/CloudStorage/OneDrive-UniversityofGlasgow/Temposeq/final_figures/v250331_superclusters/all_LATTICeA_ssGSEA_hallmarks_norm.csv") %>% 
+  column_to_rownames("pathway") %>% 
+  dplyr:::select(rownames(metadata))
+```
+
+n=784 cores with paired RNASeq vs. whole patient NMF scoring
+
+### For survival analysis
+
+```{r}
+#| echo: false
+comp_survival <- read_csv("/Users/Kai/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/PhD_Workspace/Hyperstack_paper/nmf/W_df_k12_survival.csv") %>% 
+  dplyr::select(-c("...1")) %>% 
+  column_to_rownames("samples")
+
+```
+
+n=906 non-mucinous adenocarcinoma with survival data.
+
+## Survival analysis
+
+### Split by component 6 score
+
+```{r}
+#| code-fold: true
+#| code-summary: "Code to generate the split"
+library(survminer)
+comp_6_cut <- surv_cutpoint(comp_survival,
+                             time = "os_event_data",
+                             event = "os_event_ind",
+                             variables = "Component_6")
+
+summary(comp_6_cut)
+```
+
+```{r}
+#| code-fold: true
+#| code-summary: "Code for KM"
+#| fig-cap: "Survival function for patients with high component 6 scores. High n=342, Low n=564"
+library(survival)
+comp6_classified_df <- surv_categorize(comp_6_cut) 
+km_fit <- survfit(Surv(os_event_data, os_event_ind) ~ Component_6, data = comp6_classified_df)
+surv_diff <- survdiff(Surv(os_event_data, os_event_ind) ~ Component_6, data = comp6_classified_df)
+comp6_classified_df$samples = rownames(comp_survival)
+
+ggsurvplot(km_fit, 
+           pval = paste0("p = ", sprintf("%.4f", surv_diff$pvalue)),
+           pvalue.format = TRUE,
+           xlim = c(0, 60),
+           break.x.by = 10,
+           legend = "top",
+           legend.title = "Component 6",
+           legend.labs = c("High", "Low"),
+           data = comp6_classified_df) + 
+  labs(x = "Time (months)", y = "Survival probability (overall survival)", title = "All patients")
+
+ggsave("KM_comp6_all.pdf",
+       path = "~/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF SSL/",
+       scale = 0.5,
+       width = 8,
+       height = 8,
+       dpi = 300
+)
+```
+
+### Sub-select by grade 1/2
+
+```{r}
+#| code-fold: true
+#| code-summary: "Code for KM"
+#| fig-cap: "Survival function for patients (whole tumour grade 1/2 only) with high component 6 scores. High n=110, Low n=274"
+
+comp_survival_lowgrade <- comp_survival %>% 
+  filter(G3 != 1)
+
+comp_6_cut_lowgrade <- surv_cutpoint(comp_survival_lowgrade,
+                             time = "os_event_data",
+                             event = "os_event_ind",
+                             variables = "Component_6")
+
+
+comp6_classified_df_lg <- surv_categorize(comp_6_cut_lowgrade) 
+km_fit <- survfit(Surv(os_event_data, os_event_ind) ~ Component_6, data = comp6_classified_df_lg)
+surv_diff <- survdiff(Surv(os_event_data, os_event_ind) ~ Component_6, data = comp6_classified_df_lg)
+
+ggsurvplot(km_fit, 
+           pval = paste0("p = ", sprintf("%.4f", surv_diff$pvalue)),
+           pvalue.format = TRUE,
+           xlim = c(0, 60),
+           break.x.by = 10,
+           legend = "top",
+           legend.title = "Component 6",
+           legend.labs = c("High", "Low"),
+           data = comp6_classified_df_lg) + 
+  labs(x = "Time (months)", y = "Survival probability (overall survival)", title = "Grade 1/2 only")
+
+ggsave("KM_comp6_LG_only.pdf",
+       path = "~/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF SSL/",
+       scale = 0.5,
+       width = 8,
+       height = 8,
+       dpi = 300
+)
+```
+
+### Sub-select by grade 3
+
+```{r}
+#| code-fold: true
+#| code-summary: "Code for KM"
+#| fig-cap: "Survival function for patients (whole tumour grade 3 only) with high component 6 scores. High n=136, Low n=386"
+comp_survival_highgrade <- comp_survival %>% 
+  filter(G3 == 1)
+
+comp_6_cut_highgrade <- surv_cutpoint(comp_survival_highgrade,
+                             time = "os_event_data",
+                             event = "os_event_ind",
+                             variables = "Component_6")
+
+
+comp6_classified_df_hg <- surv_categorize(comp_6_cut_highgrade) 
+km_fit <- survfit(Surv(os_event_data, os_event_ind) ~ Component_6, data = comp6_classified_df_hg)
+surv_diff <- survdiff(Surv(os_event_data, os_event_ind) ~ Component_6, data = comp6_classified_df_hg)
+
+ggsurvplot(km_fit, 
+           pval = paste0("p = ", sprintf("%.4f", surv_diff$pvalue)),
+           pvalue.format = TRUE,
+           xlim = c(0, 60),
+           break.x.by = 10,
+           legend = "top",
+           legend.title = "Component 6",
+           legend.labs = c("High", "Low"),
+           data = comp6_classified_df_hg) + 
+  labs(x = "Time (months)", y = "Survival probability (overall survival)", title = "Grade 3 only")
+
+ggsave("KM_comp6_HG_only.pdf",
+       path = "~/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF SSL/",
+       scale = 0.5,
+       width = 8,
+       height = 8,
+       dpi = 300
+)
+
+```
+
+## RNA-Seq analysis
+
+### Differential expression by survival split
+
+```{r}
+#| echo: false
+library(DESeq2)
+
+metadata_comp6 <- metadata %>% 
+  rownames_to_column(var = "ts_id") %>% 
+  left_join(comp6_classified_df, join_by(samples == samples)) %>% 
+  column_to_rownames(var = "ts_id") %>% 
+  na.omit() %>% 
+  rename(Component_6.y = "comp6_strata")
+
+metadata_comp6$comp6_strata <- factor(metadata_comp6$comp6_strata)
+
+filtered_raw_counts <- as.data.frame(raw_counts) %>% 
+  select(rownames(metadata_comp6))
+
+raw_counts_filtered_genes <- round(filtered_raw_counts, 0) %>%
+  subset(., apply(filtered_raw_counts, 1, mean) >= 10) %>% 
+  na.omit(.)
+
+raw_counts_matrix <- raw_counts_filtered_genes %>% 
+  dplyr:::select(rownames(metadata_comp6)) %>% 
+  as.matrix(.)
+
+metadata_comp6 <- metadata_comp6[colnames(filtered_raw_counts), ]
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts_matrix, colData = metadata_comp6, design = ~ comp6_strata)
+dds <- DESeq(dds,
+             BPPARAM = MulticoreParam(workers = detectCores() - 1))  
+
+resdata <- data.frame(round(counts(dds, normalized = TRUE), 2))
+colnames(resdata) <- colnames(raw_counts_matrix)
+
+de <- data.frame(results(dds, c("comp6_strata", "high", "low"))) %>% 
+  arrange(padj)
+
+de$mlog10p <- -log(de$padj, 10)
+
+sig_up <- de %>% 
+  filter(log2FoldChange > 1 & padj < 0.01)
+
+sig_down <- de %>% 
+  filter(log2FoldChange < -1 & padj < 0.01)
+
+```
+
+```{r}
+library(ggrepel)
+ggplot(de, aes(x = log2FoldChange, y = mlog10p)) +
+  geom_point(aes(color = "Not Significant")) +
+  geom_point(data = sig_up, aes(color = "Up in Component 6")) +
+  geom_point(data = sig_down, aes(color = "Down in Component 6")) +
+  scale_color_manual(values = c(
+    "Not Significant" = "grey",
+    "Up in Component 6" = "#E15759",
+    "Down in Component 6" = "#4E79A7"
+  ), name = "") +
+  geom_text_repel(data = sig_up %>% slice_head(n = 5), aes(label = row.names(sig_up %>% slice_head(n = 5))), max.overlaps = 40) + 
+  geom_text_repel(data = sig_down %>% slice_head(n = 5), aes(label = row.names(sig_down %>% slice_head(n = 5))), max.overlaps = 40) + 
+  labs(x = 'L2FC', y = '-log10p', title = 'DE Component 6') +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+
+ggsave("DE_comp6_volcano.pdf",
+       path = "~/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF SSL/",
+       scale = 0.5,
+       width = 12,
+       height = 8,
+       dpi = 300
+)
+```
+
+#### GSEA: Hallmarks
+
+```{r}
+library(fgsea)
+library(parallel)
+library(BiocParallel)
+library(exCITingpath)
+library(scales)
+
+# Rank genes for GSEA (L2FC)
+ranked_genes <- de$log2FoldChange
+names(ranked_genes) <- row.names(de)
+ranked_genes <- sort(ranked_genes, decreasing = TRUE)
+
+# Hallmarks
+
+hallmarks <- loadDB("h.all.v2024.1.Hs.symbols.gmt")
+
+gsea_results_hallmarks <- fgsea(
+  pathways = hallmarks,
+  stats = ranked_genes,      
+  minSize = 5,
+  maxSize = length(ranked_genes) - 1,
+  BPPARAM = MulticoreParam(workers = detectCores() - 1)
+)
+
+top_pathways <- filter(gsea_results_hallmarks, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(pathway = sub("^HALLMARK_", "", pathway)) %>% 
+  mutate(pathway = str_wrap(pathway, width = 50)) %>% 
+  slice_head(n = 20)
+
+top_pathways$mlog10p <- -log10(top_pathways$padj)
+
+ggplot(top_pathways, aes(x = reorder(pathway, NES), y = NES, fill = mlog10p)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Up in Component 6 High", x = "Pathways", y = "Normalised Enrichment Score") +
+  scale_fill_gradient(high = "#E15759", low = "gray", name = "-log10(p)", limits = c(2, 10), oob=squish) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+
+ggsave("DE_comp6_GSEA_hallmarks.pdf",
+       path = "~/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF SSL/",
+       scale = 0.5,
+       width = 12,
+       height = 8,
+       dpi = 300
+)
+```
+
+#### GSEA: Kegg
+
+```{r}
+kegg <- loadDB("KEGG_2021_Human.txt")
+
+gsea_results_kegg <- fgsea(
+  pathways = kegg,
+  stats = ranked_genes,      
+  minSize = 5,
+  maxSize = length(ranked_genes) - 1,
+  BPPARAM = MulticoreParam(workers = detectCores() - 1)
+)
+
+top_pathways <- filter(gsea_results_kegg, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(pathway = str_wrap(pathway, width = 50)) %>% 
+  slice_head(n = 20)
+
+top_pathways$mlog10p <- -log10(top_pathways$padj)
+
+ggplot(top_pathways, aes(x = reorder(pathway, NES), y = NES, fill = mlog10p)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Up in Component 6 High", x = "Pathways", y = "Normalised Enrichment Score") +
+  scale_fill_gradient(high = "#E15759", low = "gray", name = "-log10(p)", limits = c(2, 10), oob=squish) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+
+ggsave("DE_comp6_GSEA_kegg.pdf",
+       path = "~/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF SSL/",
+       scale = 0.5,
+       width = 12,
+       height = 8,
+       dpi = 300
+)
+```
+
+#### GSEA: GO
+
+```{r}
+go_all <- loadDB(c("GO_Biological_Process_2023.txt", "GO_Cellular_Component_2023.txt", "GO_Molecular_Function_2023.txt"))
+
+gsea_results_go <- fgsea(
+  pathways = go_all,
+  stats = ranked_genes,      
+  minSize = 5,
+  maxSize = length(ranked_genes) - 1,
+  BPPARAM = MulticoreParam(workers = detectCores() - 1)
+)
+
+top_pathways <- filter(gsea_results_go, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(pathway = gsub("\\(.*?\\)", "", pathway)) %>% 
+  mutate(pathway = str_wrap(pathway, width = 50))
+
+top_pathways$mlog10p <- -log10(top_pathways$padj)
+
+ggplot(top_pathways, aes(x = reorder(pathway, NES), y = NES, fill = mlog10p)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Up in Component 6 High", x = "Pathways", y = "Normalised Enrichment Score") +
+  scale_fill_gradient(high = "#E15759", low = "gray", name = "-log10(p)", limits = c(2, 10), oob=squish) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+```
+
+#### ORA: GO
+
+```{r}
+library(clusterProfiler)
+library(org.Hs.eg.db)
+
+de_genes <- de %>% 
+  rownames_to_column("gene") %>% 
+  filter(log2FoldChange > 1 & padj < 0.05) %>% 
+  pull(gene)
+
+enrich_go_bp <- enrichGO(
+  gene = de_genes,
+  universe = rownames(resdata),
+  keyType = "SYMBOL",
+  OrgDb = org.Hs.eg.db,
+  ont = "ALL",
+  pvalueCutoff = 0.05,
+  qvalueCutoff = 0.1,
+  readable = TRUE)
+
+dotplot(enrich_go_bp)
+
+```
+
+#### ORA: KEGG
+
+```{r}
+de_df <- bitr(de_genes, fromType = "SYMBOL",
+                toType = c("ENTREZID"),
+                OrgDb = org.Hs.eg.db)
+
+ora_kegg <- enrichKEGG(
+  gene = de_df$ENTREZID,
+  organism = "hsa",
+  universe = rownames(resdata),
+  pvalueCutoff = 0.05,
+  minGSSize = 1)
+
+```
+
+### Differential expression in high grade tumours
+
+```{r}
+#| echo: false
+
+metadata_comp6_hg <- metadata %>% 
+  rownames_to_column(var = "ts_id") %>% 
+  left_join(comp6_classified_df_hg %>% rownames_to_column("samples"), join_by(samples == samples)) %>% 
+  column_to_rownames(var = "ts_id") %>% 
+  na.omit() %>% 
+  rename(Component_6.y = "comp6_strata")
+
+metadata_comp6_hg$comp6_strata <- factor(metadata_comp6_hg$comp6_strata)
+
+filtered_raw_counts <- as.data.frame(raw_counts) %>% 
+  select(rownames(metadata_comp6_hg))
+
+raw_counts_filtered_genes <- round(filtered_raw_counts, 0) %>%
+  subset(., apply(filtered_raw_counts, 1, mean) >= 10) %>% 
+  na.omit(.)
+
+raw_counts_matrix <- raw_counts_filtered_genes %>% 
+  dplyr:::select(rownames(metadata_comp6_hg)) %>% 
+  as.matrix(.)
+
+metadata_comp6_hg <- metadata_comp6_hg[colnames(filtered_raw_counts), ]
+
+dds <- DESeqDataSetFromMatrix(countData = raw_counts_matrix, colData = metadata_comp6_hg, design = ~ comp6_strata)
+dds <- DESeq(dds,
+             BPPARAM = MulticoreParam(workers = detectCores() - 1))  
+
+resdata <- data.frame(round(counts(dds, normalized = TRUE), 2))
+colnames(resdata) <- colnames(raw_counts_matrix)
+
+de <- data.frame(results(dds, c("comp6_strata", "high", "low"))) %>% 
+  arrange(padj)
+
+de$mlog10p <- -log(de$padj, 10)
+
+sig_up <- de %>% 
+  filter(log2FoldChange > 1 & padj < 0.01)
+
+sig_down <- de %>% 
+  filter(log2FoldChange < -1 & padj < 0.01)
+```
+
+```{r}
+#| fig-cap: "Survival function for patients (whole tumour grade 3 only) with high component 6 scores. High n=109, Low n=305"
+ggplot(de, aes(x = log2FoldChange, y = mlog10p)) +
+  geom_point(aes(color = "Not Significant")) +
+  geom_point(data = sig_up, aes(color = "Up in Component 6 High")) +
+  geom_point(data = sig_down, aes(color = "Down in Component 6 High")) +
+  scale_color_manual(values = c(
+    "Not Significant" = "grey",
+    "Up in Component 6 High" = "#E15759",
+    "Down in Component 6 High" = "#4E79A7"
+  ), name = "") +
+  geom_text_repel(data = sig_up %>% slice_head(n = 10), aes(label = row.names(sig_up %>% slice_head(n = 10))), max.overlaps = 40) + 
+  geom_text_repel(data = sig_down %>% slice_head(n = 10), aes(label = row.names(sig_down %>% slice_head(n = 10))), max.overlaps = 40) + 
+  labs(x = 'L2FC', y = '-log10p', title = 'DE Component 6') +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+```
+
+#### GSEA: Hallmarks
+
+```{r}
+# Rank genes for GSEA (L2FC)
+
+ranked_genes <- de$log2FoldChange
+names(ranked_genes) <- row.names(de)
+ranked_genes <- sort(ranked_genes, decreasing = TRUE)
+
+gsea_results_hallmarks <- fgsea(
+  pathways = hallmarks,
+  stats = ranked_genes,      
+  minSize = 5,
+  maxSize = length(ranked_genes) - 1,
+  BPPARAM = MulticoreParam(workers = detectCores() - 1)
+)
+
+top_pathways <- filter(gsea_results_hallmarks, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(pathway = sub("^HALLMARK_", "", pathway)) %>% 
+  mutate(pathway = str_wrap(pathway, width = 50)) %>% 
+  slice_head(n = 20)
+
+top_pathways$mlog10p <- -log10(top_pathways$padj)
+
+ggplot(top_pathways, aes(x = reorder(pathway, NES), y = NES, fill = mlog10p)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Up in Component 6 High", x = "Pathways", y = "Normalised Enrichment Score") +
+  scale_fill_gradient(high = "#E15759", low = "gray", name = "-log10(p)", limits = c(2, 10), oob=squish) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+```
+
+#### GSEA: KEGG
+
+```{r}
+gsea_results_kegg <- fgsea(
+  pathways = kegg,
+  stats = ranked_genes,      
+  minSize = 5,
+  maxSize = length(ranked_genes) - 1,
+  BPPARAM = MulticoreParam(workers = detectCores() - 1)
+)
+
+top_pathways <- filter(gsea_results_kegg, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(pathway = str_wrap(pathway, width = 50)) %>% 
+  slice_head(n = 20)
+
+top_pathways$mlog10p <- -log10(top_pathways$padj)
+
+ggplot(top_pathways, aes(x = reorder(pathway, NES), y = NES, fill = mlog10p)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Up in Component 6 High", x = "Pathways", y = "Normalised Enrichment Score") +
+  scale_fill_gradient(high = "#E15759", low = "gray", name = "-log10(p)", limits = c(2, 10), oob=squish) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+```
+
+#### GSEA: GO
+
+```{r}
+gsea_results_go <- fgsea(
+  pathways = go_all,
+  stats = ranked_genes,      
+  minSize = 5,
+  maxSize = length(ranked_genes) - 1,
+  BPPARAM = MulticoreParam(workers = detectCores() - 1)
+)
+
+top_pathways <- filter(gsea_results_go, padj < 0.05) %>%
+  arrange(desc(abs(NES))) %>%
+  mutate(pathway = gsub("\\(.*?\\)", "", pathway)) %>% 
+  mutate(pathway = str_wrap(pathway, width = 50))
+
+top_pathways$mlog10p <- -log10(top_pathways$padj)
+
+ggplot(top_pathways, aes(x = reorder(pathway, NES), y = NES, fill = mlog10p)) +
+  geom_bar(stat = "identity") +
+  coord_flip() +
+  labs(title = "Up in Component 6 High", x = "Pathways", y = "Normalised Enrichment Score") +
+  scale_fill_gradient(high = "#E15759", low = "gray", name = "-log10(p)", limits = c(2, 10), oob=squish) +
+  theme_bw() + 
+  theme(panel.grid = element_blank())
+```
+
+### ssGSEA vs. all components
+
+#### Prepare correlation matrix
+
+```{r}
+library(ComplexHeatmap)
+library(circlize)
+compute_correlations_with_pvals <- function(matrix1, matrix2, corr_method) {
+  # Initialize matrices for correlations and p-values
+  n_rows <- ncol(matrix1)
+  n_cols <- ncol(matrix2)
+  cors <- matrix(NA, nrow = n_rows, ncol = n_cols)
+  pvals <- matrix(NA, nrow = n_rows, ncol = n_cols)
+  
+  # Compute correlations and p-values
+  for (i in 1:n_rows) {
+    for (j in 1:n_cols) {
+      test_result <- cor.test(matrix1[,i], matrix2[,j], method = corr_method)
+      cors[i,j] <- test_result$estimate
+      pvals[i,j] <- test_result$p.value
+    }
+  }
+  
+  # Adjust p-values for multiple testing
+  # adjusted_pvals <- matrix(p.adjust(pvals, method = "BH"), nrow = n_rows)
+  adjusted_pvals <- matrix(p.adjust(pvals, method = "BH"), nrow = n_rows, ncol = n_cols)
+  
+  return(list(correlations = cors, 
+              raw_pvals = pvals, 
+              adjusted_pvals = adjusted_pvals))
+}
+
+stat_results <- compute_correlations_with_pvals(t(hallmarks_ssgsea), metadata %>% dplyr:::select(-samples), corr_method = "spearman")
+
+stat_cor <- stat_results$correlations
+rownames(stat_cor) <- gsub("HALLMARK_", "", rownames(hallmarks_ssgsea))
+colnames(stat_cor) <- sub("_", " ", colnames(metadata %>% dplyr:::select(-samples)))
+
+sig_matrix <- matrix("", nrow = nrow(stat_results$adjusted_pvals), ncol = ncol(stat_results$adjusted_pvals))
+sig_matrix[stat_results$adjusted_pvals < 0.01] <- "*"
+
+# sig_matrix[stat_results$adjusted_pvals < 0.01 & stat_results$adjusted_pvals >= 0.001] <- "**"
+# sig_matrix[stat_results$adjusted_pvals < 0.05 & stat_results$adjusted_pvals >= 0.01] <- "*"
+
+```
+
+#### Draw heatmap
+
+```{r}
+col_colors <- colorRamp2(c(-0.4, 0, 0.4), c("#4E79A7", "white", "#E15759"))
+
+p <- Heatmap(
+  stat_cor,
+  name = "Spearman\ncorrelation",
+  col = col_colors,
+  border = TRUE,
+  row_names_side = "left",
+  row_dend_side = "right", 
+  cell_fun = function(j, i, x, y, width, height, fill) {
+    if (sig_matrix[i, j] != "") {
+      grid.text(sig_matrix[i, j], x, y)
+    }
+  }
+)
+
+pdf(file="/Users/Kai/Library/CloudStorage/OneDrive-UniversityofGlasgow/Documents/Collaborations/mIF\ SSL/ssGSEA_vs_NMF12-stats.pdf", width = 7.2, height = 9)
+draw(p, heatmap_legend_side = "right", annotation_legend_side = "right", padding = unit(c(2, 30, 2, 2), "mm"))
+dev.off()
+```
