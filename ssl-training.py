@@ -67,8 +67,7 @@ sys.path.insert(0,'/home/')
 from VICReg.vicreg_utils  import create_adam_opt, save_vicreg_weights, load_vicreg_weights
 from VICReg.augmentations import *
 from VICReg.warmupcosine import WarmUpCosine
-
-from ssl_base import VICReg
+from VICReg.ssl_base import VICReg
 
 from classification_models.keras import Classifiers
 
