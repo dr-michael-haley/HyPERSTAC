@@ -1,6 +1,6 @@
 # MultiplexSSL
 
-Here is a sample command to run the tiling script. Replace the placeholder paths with your actual directory paths.
+Here is a sample command to run the tiling script. Replace the placeholder paths with your actual directory paths. Note channels are indexed from 0.
 
 ```
 python3 patch-multiplex-images.py \
