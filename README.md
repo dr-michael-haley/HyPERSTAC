@@ -1,5 +1,27 @@
 # MultiplexSSL
 
+Here is a sample command to run the tiling script. Replace the placeholder paths with your actual directory paths. Note channels are indexed from 0.
+
+```
+python3 patch-multiplex-images.py \
+    --input-dir "/path/to/your/images" \
+    --out-path "/path/to/save/good_cores" \
+    --unwanted-path "/path/to/save/unwanted_cores" \
+    --dapi-channel 6 \
+    --tile-size 224 \
+    --min-tiles 25
+```
+
+If your images are in the (Channel, Height, Width) format, you would add the --move-axis flag:
+
+```
+python3 patch-multiplex-images.py \
+    --input-dir "/path/to/c_h_w_images" \
+    --out-path "/path/to/save/good_cores" \
+    --unwanted-path "/path/to/save/unwanted_cores" \
+    --move-axis
+```
+
 To run the ssl-training script, use e.g. the command
 ```
 python3 ssl-training.py \

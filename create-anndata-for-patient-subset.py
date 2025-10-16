@@ -1,6 +1,5 @@
 print("Running")
 import os
-os.environ['CUDA_VISIBLE_DEVICES'] = "1"
 os.environ['SCIPY_ARRAY_API'] = "1"
 import numpy as np
 import glob
