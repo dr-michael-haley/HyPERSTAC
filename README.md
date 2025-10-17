@@ -1,4 +1,4 @@
-# MultiplexSSL
+# HYPERSTAC: HYpothesis-free Proteomic Embeddings for Representing Spatial Tissue Architecture & Context
 
 Here is a sample command to run the tiling script. Replace the placeholder paths with your actual directory paths. Note channels are indexed from 0.
 
