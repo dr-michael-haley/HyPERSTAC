@@ -559,8 +559,8 @@ def make_anndata(
         import scanpy as sc
 
         print("Running Scanpy neighbors, UMAP, and Leiden clustering")
-        sc.pp.neighbors(adata, use_rep="X")
-        sc.tl.umap(adata)
+        sc.pp.neighbors(adata, use_rep="X", n_neighbors=30)
+        sc.tl.umap(adata, min_dist=0.1)
         sc.tl.leiden(adata, resolution=args.leiden_resolution)
 
     return adata

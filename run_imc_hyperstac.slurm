@@ -1,13 +1,14 @@
-#!/bin/bash
-#SBATCH --job-name=hyperstac-imc
-#SBATCH --output=logs/hyperstac-imc-%j.out
-#SBATCH --error=logs/hyperstac-imc-%j.err
-#SBATCH --time=24:00:00
-#SBATCH --cpus-per-task=8
-#SBATCH --mem=64G
-#SBATCH --gres=gpu:1
+#! /bin/bash --login
+#SBATCH -p gpuA
+#SBATCH -G 1
+#SBATCH -t 2-0
+#SBATCH --nodes=1
+#SBATCH --ntasks-per-node=6
+
+source "$HOME/imcanalysis/SLURM_scripts/job_env.sh"
 
 set -euo pipefail
+
 
 # Submit from the repository root:
 #   sbatch run_imc_hyperstac.slurm
@@ -20,8 +21,8 @@ cd "${REPO_DIR}"
 mkdir -p logs
 
 # Required: folder organised as {IMAGE_FOLDER}/{roi name}/{channel name}.tiff
-IMAGE_FOLDER="${IMAGE_FOLDER:-/path/to/Images}"
-OUTPUT_DIR="${OUTPUT_DIR:-${REPO_DIR}/hyperstac_imc_output}"
+IMAGE_FOLDER="${IMAGE_FOLDER:/net/scratch/mfbx6mh8/GBMp2/matrix_images_alligned/}"
+OUTPUT_DIR="${OUTPUT_DIR:/net/scratch/mfbx6mh8/GBMp2/}"
 
 # Patch size is in pixels. For 1 um/pixel IMC, 100 means 100 um x 100 um patches.
 PATCH_SIZE="${PATCH_SIZE:-100}"
@@ -40,7 +41,7 @@ MIN_PATCH_SIGNAL="${MIN_PATCH_SIGNAL:-0.0}"
 
 # Training defaults. Use ENCODER=small-cnn for a faster smoke test.
 ENCODER="${ENCODER:-resnet50}"
-EPOCHS="${EPOCHS:-30}"
+EPOCHS="${EPOCHS:-50}"
 BATCH_SIZE="${BATCH_SIZE:-64}"
 LEARNING_RATE="${LEARNING_RATE:-1e-4}"
 PROJECTOR_OUTPUT_SIZE="${PROJECTOR_OUTPUT_SIZE:-2048}"
@@ -49,7 +50,7 @@ PROJECTOR_OUTPUT_SIZE="${PROJECTOR_OUTPUT_SIZE:-2048}"
 ENCODER_WEIGHTS="${ENCODER_WEIGHTS:-}"
 
 # Set RUN_SCANPY=1 to compute neighbors, UMAP, and Leiden in the output h5ad.
-RUN_SCANPY="${RUN_SCANPY:-0}"
+RUN_SCANPY="${RUN_SCANPY:1}"
 LEIDEN_RESOLUTION="${LEIDEN_RESOLUTION:-1.0}"
 
 # Reuse previously created patches with REUSE_PATCHES=1, or replace outputs with OVERWRITE=1.
@@ -63,7 +64,7 @@ OVERWRITE="${OVERWRITE:-0}"
 
 # Conda activation. Create the environment once before submitting:
 #   conda env create -f environment.yml
-source "$(conda info --base)/etc/profile.d/conda.sh"
+#source "$(conda info --base)/etc/profile.d/conda.sh"
 conda activate hyperstac-imc
 
 ARGS=(
