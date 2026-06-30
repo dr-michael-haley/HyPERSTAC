@@ -1,0 +1,24 @@
+name: hyperstac-imc
+channels:
+  - conda-forge
+dependencies:
+  - python=3.10
+  - pip
+  - numpy=1.26
+  - pandas=2.2
+  - scipy=1.11
+  - scikit-learn=1.4
+  - scikit-image=0.22
+  - tifffile
+  - pillow
+  - h5py
+  - anndata=0.10
+  - scanpy=1.10
+  - matplotlib
+  - seaborn
+  - tqdm
+  - umap-learn
+  - python-igraph
+  - leidenalg
+  - pip:
+      - "tensorflow[and-cuda]==2.15.1"
