@@ -21,7 +21,7 @@ cd "${REPO_DIR}"
 mkdir -p logs
 
 # Required: folder organised as {IMAGE_FOLDER}/{roi name}/{channel name}.tiff
-IMAGE_FOLDER="${IMAGE_FOLDER:-/net/scratch/mfbx6mh8/GBMp2/matrix_images_alligned/}"
+IMAGE_FOLDER="${IMAGE_FOLDER:-/net/scratch/mfbx6mh8/GBMp2/matrix_images_normalised/}"
 OUTPUT_DIR="${OUTPUT_DIR:-/net/scratch/mfbx6mh8/GBMp2/}"
 
 # Patch size is in pixels. For 1 um/pixel IMC, 100 means 100 um x 100 um patches.
