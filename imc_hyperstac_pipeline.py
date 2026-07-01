@@ -13,6 +13,13 @@ normalised to [0, 1].
 
 The default patch size is 100 pixels. For 1 um/pixel IMC images, this gives
 100 um x 100 um patches. Change this with --patch-size.
+
+By default, each patch is also divided into 10 x 10 pixel subpatches. A subpatch
+is counted as tissue when its mean signal across all channels is at least 0.001,
+and a patch is kept when at least 5% of its subpatches are tissue-positive.
+
+Outputs include one AnnData object with neural representations in .X and another
+AnnData object with handcrafted patch-level metrics in .X.
 """
 
 from __future__ import annotations
@@ -21,6 +28,7 @@ import argparse
 import json
 import os
 import random
+import re
 import shutil
 import sys
 from pathlib import Path
@@ -129,6 +137,34 @@ def parse_args() -> argparse.Namespace:
         ),
     )
     parser.add_argument(
+        "--subpatch-size",
+        type=int,
+        default=10,
+        help=(
+            "Subpatch width/height in pixels for local tissue filtering. "
+            "With --patch-size 100 and --subpatch-size 10, each patch is scored "
+            "as a 10 x 10 grid of subpatches."
+        ),
+    )
+    parser.add_argument(
+        "--subpatch-signal-threshold",
+        type=float,
+        default=0.001,
+        help=(
+            "Minimum mean signal across all channels for a subpatch to be counted "
+            "as tissue."
+        ),
+    )
+    parser.add_argument(
+        "--min-tissue-subpatch-fraction",
+        type=float,
+        default=0.05,
+        help=(
+            "Minimum fraction of tissue-positive subpatches required for a patch "
+            "to be kept. Set to 0 to disable subpatch tissue filtering."
+        ),
+    )
+    parser.add_argument(
         "--overwrite",
         action="store_true",
         help="Delete and recreate existing patch/model outputs in output-dir.",
@@ -199,6 +235,12 @@ def parse_args() -> argparse.Namespace:
         type=str,
         default="imc_hyperstac_representations.h5ad",
         help="Name of the output AnnData file inside output-dir.",
+    )
+    parser.add_argument(
+        "--metrics-adata-name",
+        type=str,
+        default="imc_hyperstac_patch_metrics.h5ad",
+        help="Name of the patch-metrics AnnData file inside output-dir.",
     )
     parser.add_argument("--seed", type=int, default=1, help="Random seed.")
 
@@ -286,7 +328,13 @@ def ensure_clean_output(args: argparse.Namespace) -> None:
             path = args.output_dir / subdir
             if path.exists():
                 shutil.rmtree(path)
-        for filename in ["patch_metadata.csv", args.adata_name, "channels.json", "run_config.json"]:
+        for filename in [
+            "patch_metadata.csv",
+            args.adata_name,
+            args.metrics_adata_name,
+            "channels.json",
+            "run_config.json",
+        ]:
             path = args.output_dir / filename
             if path.exists():
                 path.unlink()
@@ -300,13 +348,190 @@ def iter_patch_slices(height: int, width: int, patch_size: int, stride: int) -> 
             yield row_start, row_end, col_start, col_end
 
 
+def safe_feature_name(value: str) -> str:
+    name = re.sub(r"[^0-9A-Za-z]+", "_", value).strip("_").lower()
+    if not name:
+        name = "channel"
+    if name[0].isdigit():
+        name = f"ch_{name}"
+    return name
+
+
+def make_unique_names(values: list[str]) -> list[str]:
+    counts: dict[str, int] = {}
+    unique: list[str] = []
+    for value in values:
+        base = safe_feature_name(value)
+        count = counts.get(base, 0)
+        unique.append(base if count == 0 else f"{base}_{count + 1}")
+        counts[base] = count + 1
+    return unique
+
+
+def channel_mean_columns(channels: list[str]) -> dict[str, str]:
+    safe_channels = make_unique_names(channels)
+    return {
+        channel: f"mean_intensity_norm_{safe_channel}"
+        for channel, safe_channel in zip(channels, safe_channels)
+    }
+
+
+def calculate_subpatch_tissue_stats(
+    patch: np.ndarray,
+    subpatch_size: int,
+    signal_threshold: float,
+) -> dict[str, float | int]:
+    signal = patch.mean(axis=2)
+    usable_height = (signal.shape[0] // subpatch_size) * subpatch_size
+    usable_width = (signal.shape[1] // subpatch_size) * subpatch_size
+
+    if usable_height == 0 or usable_width == 0:
+        raise ValueError("--subpatch-size must be no larger than --patch-size.")
+
+    signal = signal[:usable_height, :usable_width]
+    subpatch_means = signal.reshape(
+        usable_height // subpatch_size,
+        subpatch_size,
+        usable_width // subpatch_size,
+        subpatch_size,
+    ).mean(axis=(1, 3))
+    tissue_subpatches = subpatch_means > signal_threshold
+    tissue_subpatch_count = int(tissue_subpatches.sum())
+    total_subpatch_count = int(tissue_subpatches.size)
+    tissue_fraction = tissue_subpatch_count / total_subpatch_count
+
+    return {
+        "tissue_subpatch_fraction": float(tissue_fraction),
+        "tissue_subpatch_count": tissue_subpatch_count,
+        "total_subpatch_count": total_subpatch_count,
+        "mean_subpatch_signal": float(subpatch_means.mean()),
+        "max_subpatch_signal": float(subpatch_means.max()),
+    }
+
+
+def calculate_patch_metrics(
+    patch: np.ndarray,
+    channels: list[str],
+    positive_signal_threshold: float,
+) -> dict[str, float]:
+    pixels_by_channel = patch.reshape(-1, patch.shape[2])
+    channel_names = make_unique_names(channels)
+    metrics: dict[str, float] = {
+        "patch_mean_signal": float(pixels_by_channel.mean()),
+        "patch_std_signal": float(pixels_by_channel.std()),
+        "patch_min_signal": float(pixels_by_channel.min()),
+        "patch_max_signal": float(pixels_by_channel.max()),
+    }
+
+    quantiles = np.percentile(pixels_by_channel, [25, 50, 75, 95], axis=0)
+    means = pixels_by_channel.mean(axis=0)
+    stds = pixels_by_channel.std(axis=0)
+    mins = pixels_by_channel.min(axis=0)
+    maxs = pixels_by_channel.max(axis=0)
+    positive_fractions = (pixels_by_channel > positive_signal_threshold).mean(axis=0)
+
+    for idx, channel_name in enumerate(channel_names):
+        metrics[f"mean_intensity_norm_{channel_name}"] = float(means[idx])
+        metrics[f"std_intensity_{channel_name}"] = float(stds[idx])
+        metrics[f"min_intensity_{channel_name}"] = float(mins[idx])
+        metrics[f"max_intensity_{channel_name}"] = float(maxs[idx])
+        metrics[f"p25_intensity_{channel_name}"] = float(quantiles[0, idx])
+        metrics[f"median_intensity_{channel_name}"] = float(quantiles[1, idx])
+        metrics[f"p75_intensity_{channel_name}"] = float(quantiles[2, idx])
+        metrics[f"p95_intensity_{channel_name}"] = float(quantiles[3, idx])
+        metrics[f"positive_pixel_fraction_{channel_name}"] = float(positive_fractions[idx])
+
+    return metrics
+
+
+def metric_feature_columns(channels: list[str]) -> list[str]:
+    columns = [
+        "patch_mean_signal",
+        "patch_std_signal",
+        "patch_min_signal",
+        "patch_max_signal",
+        "tissue_subpatch_fraction",
+        "tissue_subpatch_count",
+        "total_subpatch_count",
+        "mean_subpatch_signal",
+        "max_subpatch_signal",
+    ]
+    channel_names = make_unique_names(channels)
+    for channel_name in channel_names:
+        columns.extend(
+            [
+                f"mean_intensity_norm_{channel_name}",
+                f"std_intensity_{channel_name}",
+                f"min_intensity_{channel_name}",
+                f"max_intensity_{channel_name}",
+                f"p25_intensity_{channel_name}",
+                f"median_intensity_{channel_name}",
+                f"p75_intensity_{channel_name}",
+                f"p95_intensity_{channel_name}",
+                f"positive_pixel_fraction_{channel_name}",
+            ]
+        )
+    return columns
+
+
+def add_missing_patch_metrics(
+    metadata: pd.DataFrame,
+    channels: list[str],
+    subpatch_size: int,
+    subpatch_signal_threshold: float,
+) -> pd.DataFrame:
+    required_columns = set(metric_feature_columns(channels))
+    if required_columns.issubset(metadata.columns):
+        return metadata
+
+    records = []
+    for row in tqdm(metadata.itertuples(index=False), total=len(metadata), desc="Calculating patch metrics"):
+        patch = np.load(row.patch_path).astype(np.float32, copy=False)
+        records.append(
+            {
+                **calculate_subpatch_tissue_stats(
+                    patch,
+                    subpatch_size=subpatch_size,
+                    signal_threshold=subpatch_signal_threshold,
+                ),
+                **calculate_patch_metrics(
+                    patch,
+                    channels,
+                    positive_signal_threshold=subpatch_signal_threshold,
+                ),
+            }
+        )
+
+    metric_df = pd.DataFrame.from_records(records, index=metadata.index)
+    metadata = metadata.copy()
+    for column in metric_df.columns:
+        metadata[column] = metric_df[column]
+    return metadata
+
+
 def tile_dataset(args: argparse.Namespace, rois: list[Path], channels: list[str]) -> pd.DataFrame:
     metadata_path = args.output_dir / "patch_metadata.csv"
     patches_dir = args.output_dir / "patches"
 
     if args.reuse_patches and metadata_path.exists() and patches_dir.exists():
         print(f"Reusing existing patches from {patches_dir}")
-        return pd.read_csv(metadata_path)
+        metadata = pd.read_csv(metadata_path)
+        metadata = add_missing_patch_metrics(
+            metadata,
+            channels=channels,
+            subpatch_size=args.subpatch_size,
+            subpatch_signal_threshold=args.subpatch_signal_threshold,
+        )
+        if args.min_tissue_subpatch_fraction > 0:
+            metadata = metadata[
+                metadata["tissue_subpatch_fraction"] >= args.min_tissue_subpatch_fraction
+            ].reset_index(drop=True)
+        if args.min_patch_signal > 0:
+            metadata = metadata[metadata["patch_mean_signal"] >= args.min_patch_signal].reset_index(drop=True)
+        if metadata.empty:
+            raise ValueError("No reused patches passed the current filtering thresholds.")
+        metadata.to_csv(metadata_path, index=False)
+        return metadata
 
     if patches_dir.exists() and any(patches_dir.iterdir()) and not args.overwrite:
         raise FileExistsError(
@@ -329,13 +554,30 @@ def tile_dataset(args: argparse.Namespace, rois: list[Path], channels: list[str]
             height, width, args.patch_size, stride
         ):
             patch = stack[row_start:row_end, col_start:col_end, :]
+            subpatch_stats = calculate_subpatch_tissue_stats(
+                patch,
+                subpatch_size=args.subpatch_size,
+                signal_threshold=args.subpatch_signal_threshold,
+            )
 
             if mask_index is not None:
                 mask = patch[:, :, mask_index] > args.mask_threshold
                 if float(mask.mean()) < args.min_mask_fraction:
                     continue
 
-            if args.min_patch_signal > 0 and float(patch.mean()) < args.min_patch_signal:
+            if (
+                args.min_tissue_subpatch_fraction > 0
+                and subpatch_stats["tissue_subpatch_fraction"] < args.min_tissue_subpatch_fraction
+            ):
+                continue
+
+            patch_metrics = calculate_patch_metrics(
+                patch,
+                channels,
+                positive_signal_threshold=args.subpatch_signal_threshold,
+            )
+
+            if args.min_patch_signal > 0 and patch_metrics["patch_mean_signal"] < args.min_patch_signal:
                 continue
 
             patch_name = f"{row_start}_{row_end}_{col_start}_{col_end}.npy"
@@ -356,6 +598,8 @@ def tile_dataset(args: argparse.Namespace, rois: list[Path], channels: list[str]
                     "center_col_px": center_col_px,
                     "center_row_um": center_row_px * args.pixel_size_um,
                     "center_col_um": center_col_px * args.pixel_size_um,
+                    **subpatch_stats,
+                    **patch_metrics,
                 }
             )
 
@@ -534,26 +778,58 @@ def extract_representations(
     return features.astype(np.float32, copy=False)
 
 
+def patch_obs_index(metadata: pd.DataFrame) -> list[str]:
+    return [
+        f"{row.roi}:{row.row_start}_{row.row_end}_{row.col_start}_{row.col_end}"
+        for row in metadata.itertuples(index=False)
+    ]
+
+
+def representation_obs_columns(metadata: pd.DataFrame, channels: list[str]) -> list[str]:
+    base_columns = [
+        "roi",
+        "patch_path",
+        "row_start",
+        "row_end",
+        "col_start",
+        "col_end",
+        "center_row_px",
+        "center_col_px",
+        "center_row_um",
+        "center_col_um",
+        "patch_mean_signal",
+        "tissue_subpatch_fraction",
+        "tissue_subpatch_count",
+        "total_subpatch_count",
+        "mean_subpatch_signal",
+        "max_subpatch_signal",
+    ]
+    mean_columns = list(channel_mean_columns(channels).values())
+    return [column for column in [*base_columns, *mean_columns] if column in metadata.columns]
+
+
 def make_anndata(
     args: argparse.Namespace,
     metadata: pd.DataFrame,
     features: np.ndarray,
     channels: list[str],
 ) -> ad.AnnData:
-    obs = metadata.copy()
-    obs.index = [
-        f"{row.roi}:{row.row_start}_{row.row_end}_{row.col_start}_{row.col_end}"
-        for row in obs.itertuples(index=False)
-    ]
+    obs = metadata[representation_obs_columns(metadata, channels)].copy()
+    obs.index = patch_obs_index(metadata)
     obs.index.name = "patch_id"
 
-    adata = ad.AnnData(X=features, obs=obs)
+    var = pd.DataFrame(index=[f"representation_{idx}" for idx in range(features.shape[1])])
+    var.index.name = "feature"
+    adata = ad.AnnData(X=features, obs=obs, var=var)
     adata.obsm["spatial"] = obs[["center_col_um", "center_row_um"]].to_numpy(dtype=np.float32)
     adata.uns["channel_names"] = channels
     adata.uns["patch_size_px"] = args.patch_size
     adata.uns["patch_size_um"] = args.patch_size * args.pixel_size_um
     adata.uns["pixel_size_um"] = args.pixel_size_um
     adata.uns["encoder"] = args.encoder
+    adata.uns["subpatch_size_px"] = args.subpatch_size
+    adata.uns["subpatch_signal_threshold"] = args.subpatch_signal_threshold
+    adata.uns["min_tissue_subpatch_fraction"] = args.min_tissue_subpatch_fraction
 
     if args.run_scanpy:
         import scanpy as sc
@@ -563,6 +839,74 @@ def make_anndata(
         sc.tl.umap(adata, min_dist=0.1)
         sc.tl.leiden(adata, resolution=args.leiden_resolution)
 
+    return adata
+
+
+def make_metrics_var(channels: list[str], columns: list[str]) -> pd.DataFrame:
+    channel_lookup = {
+        safe_channel: channel
+        for channel, safe_channel in zip(channels, make_unique_names(channels))
+    }
+    records = []
+    for column in columns:
+        matched_channel = "all_channels"
+        metric = column
+        for safe_channel, original_channel in sorted(
+            channel_lookup.items(),
+            key=lambda item: len(item[0]),
+            reverse=True,
+        ):
+            suffix = f"_{safe_channel}"
+            if column.endswith(suffix):
+                matched_channel = original_channel
+                metric = column[: -len(suffix)]
+                break
+        records.append(
+            {
+                "metric": metric,
+                "channel": matched_channel,
+                "is_channel_metric": matched_channel != "all_channels",
+            }
+        )
+    return pd.DataFrame.from_records(records, index=columns)
+
+
+def make_metrics_anndata(
+    args: argparse.Namespace,
+    metadata: pd.DataFrame,
+    channels: list[str],
+) -> ad.AnnData:
+    columns = [column for column in metric_feature_columns(channels) if column in metadata.columns]
+    obs = metadata[
+        [
+            "roi",
+            "patch_path",
+            "row_start",
+            "row_end",
+            "col_start",
+            "col_end",
+            "center_row_px",
+            "center_col_px",
+            "center_row_um",
+            "center_col_um",
+        ]
+    ].copy()
+    obs.index = patch_obs_index(metadata)
+    obs.index.name = "patch_id"
+
+    var = make_metrics_var(channels, columns)
+    var.index.name = "metric_id"
+    metric_data = metadata[columns].to_numpy(dtype=np.float32)
+
+    adata = ad.AnnData(X=metric_data, obs=obs, var=var)
+    adata.obsm["spatial"] = obs[["center_col_um", "center_row_um"]].to_numpy(dtype=np.float32)
+    adata.uns["channel_names"] = channels
+    adata.uns["patch_size_px"] = args.patch_size
+    adata.uns["patch_size_um"] = args.patch_size * args.pixel_size_um
+    adata.uns["pixel_size_um"] = args.pixel_size_um
+    adata.uns["subpatch_size_px"] = args.subpatch_size
+    adata.uns["subpatch_signal_threshold"] = args.subpatch_signal_threshold
+    adata.uns["min_tissue_subpatch_fraction"] = args.min_tissue_subpatch_fraction
     return adata
 
 
@@ -589,8 +933,16 @@ def main() -> None:
         raise ValueError("--patch-size must be positive.")
     if args.stride <= 0:
         raise ValueError("--stride must be positive.")
+    if args.subpatch_size <= 0:
+        raise ValueError("--subpatch-size must be positive.")
+    if args.subpatch_size > args.patch_size:
+        raise ValueError("--subpatch-size must be no larger than --patch-size.")
     if not 0 <= args.min_mask_fraction <= 1:
         raise ValueError("--min-mask-fraction must be between 0 and 1.")
+    if not 0 <= args.min_tissue_subpatch_fraction <= 1:
+        raise ValueError("--min-tissue-subpatch-fraction must be between 0 and 1.")
+    if args.subpatch_signal_threshold < 0:
+        raise ValueError("--subpatch-signal-threshold must be non-negative.")
 
     configure_runtime(args.seed)
     ensure_clean_output(args)
@@ -604,6 +956,12 @@ def main() -> None:
     print(f"Found {len(rois)} ROIs")
     print(f"Using {len(channels)} channels: {', '.join(channels)}")
     print(f"Patch size: {args.patch_size}px x {args.patch_size}px")
+    print(
+        "Subpatch tissue filter: "
+        f"{args.subpatch_size}px subpatches, "
+        f"signal threshold {args.subpatch_signal_threshold}, "
+        f"minimum fraction {args.min_tissue_subpatch_fraction}"
+    )
 
     save_run_config(args, channels)
     metadata = tile_dataset(args, rois, channels)
@@ -612,10 +970,15 @@ def main() -> None:
     encoder = train_or_load_encoder(args, metadata, num_channels=len(channels))
     features = extract_representations(args, encoder, metadata, num_channels=len(channels))
     adata = make_anndata(args, metadata, features, channels)
+    metrics_adata = make_metrics_anndata(args, metadata, channels)
 
     adata_path = args.output_dir / args.adata_name
     adata.write_h5ad(adata_path)
     print(f"Saved AnnData with shape {adata.shape} to {adata_path}")
+
+    metrics_adata_path = args.output_dir / args.metrics_adata_name
+    metrics_adata.write_h5ad(metrics_adata_path)
+    print(f"Saved patch-metrics AnnData with shape {metrics_adata.shape} to {metrics_adata_path}")
 
 
 if __name__ == "__main__":

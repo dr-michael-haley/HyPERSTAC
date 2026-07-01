@@ -39,6 +39,12 @@ MASK_THRESHOLD="${MASK_THRESHOLD:-0.05}"
 MIN_MASK_FRACTION="${MIN_MASK_FRACTION:-0.05}"
 MIN_PATCH_SIGNAL="${MIN_PATCH_SIGNAL:-0.0}"
 
+# Channel-independent local tissue filter. With 100 px patches and 10 px subpatches,
+# this scores 100 subpatches per patch using mean signal across all channels.
+SUBPATCH_SIZE="${SUBPATCH_SIZE:-10}"
+SUBPATCH_SIGNAL_THRESHOLD="${SUBPATCH_SIGNAL_THRESHOLD:-0.01}"
+MIN_TISSUE_SUBPATCH_FRACTION="${MIN_TISSUE_SUBPATCH_FRACTION:-0.50}"
+
 # Training defaults. Use ENCODER=small-cnn for a faster smoke test.
 ENCODER="${ENCODER:-resnet50}"
 EPOCHS="${EPOCHS:-50}"
@@ -78,6 +84,9 @@ ARGS=(
   --batch-size "${BATCH_SIZE}"
   --learning-rate "${LEARNING_RATE}"
   --projector-output-size "${PROJECTOR_OUTPUT_SIZE}"
+  --subpatch-size "${SUBPATCH_SIZE}"
+  --subpatch-signal-threshold "${SUBPATCH_SIGNAL_THRESHOLD}"
+  --min-tissue-subpatch-fraction "${MIN_TISSUE_SUBPATCH_FRACTION}"
 )
 
 if [[ -n "${CHANNELS}" ]]; then
@@ -117,6 +126,7 @@ echo "Repository: ${REPO_DIR}"
 echo "Image folder: ${IMAGE_FOLDER}"
 echo "Output dir: ${OUTPUT_DIR}"
 echo "Patch size: ${PATCH_SIZE}px"
+echo "Subpatch filter: ${SUBPATCH_SIZE}px, threshold ${SUBPATCH_SIGNAL_THRESHOLD}, minimum fraction ${MIN_TISSUE_SUBPATCH_FRACTION}"
 echo "Encoder: ${ENCODER}"
 echo "Epochs: ${EPOCHS}"
 
