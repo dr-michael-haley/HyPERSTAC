@@ -21,8 +21,8 @@ cd "${REPO_DIR}"
 mkdir -p logs
 
 # Required: folder organised as {IMAGE_FOLDER}/{roi name}/{channel name}.tiff
-IMAGE_FOLDER="${IMAGE_FOLDER:/net/scratch/mfbx6mh8/GBMp2/matrix_images_alligned/}"
-OUTPUT_DIR="${OUTPUT_DIR:/net/scratch/mfbx6mh8/GBMp2/}"
+IMAGE_FOLDER="${IMAGE_FOLDER:-/net/scratch/mfbx6mh8/GBMp2/matrix_images_alligned/}"
+OUTPUT_DIR="${OUTPUT_DIR:-/net/scratch/mfbx6mh8/GBMp2/}"
 
 # Patch size is in pixels. For 1 um/pixel IMC, 100 means 100 um x 100 um patches.
 PATCH_SIZE="${PATCH_SIZE:-100}"
@@ -50,7 +50,7 @@ PROJECTOR_OUTPUT_SIZE="${PROJECTOR_OUTPUT_SIZE:-2048}"
 ENCODER_WEIGHTS="${ENCODER_WEIGHTS:-}"
 
 # Set RUN_SCANPY=1 to compute neighbors, UMAP, and Leiden in the output h5ad.
-RUN_SCANPY="${RUN_SCANPY:1}"
+RUN_SCANPY="${RUN_SCANPY:-1}"
 LEIDEN_RESOLUTION="${LEIDEN_RESOLUTION:-1.0}"
 
 # Reuse previously created patches with REUSE_PATCHES=1, or replace outputs with OVERWRITE=1.
