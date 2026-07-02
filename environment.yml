@@ -20,5 +20,7 @@ dependencies:
   - umap-learn
   - python-igraph
   - leidenalg
+  - lifelines
+  - scikit-survival
   - pip:
       - "tensorflow[and-cuda]==2.15.1"
